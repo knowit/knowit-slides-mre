@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowit Slides MRE</title>
+</head>
+<body>
+    <div id="app">
+        <h1>Last opp slides som PDF</h1>
+        
+        <p>Hjelp til å lage PDF fra slides:</p>
+        <ul>
+            <li>
+                Powerpoint: <a href="https://support.microsoft.com/en-gb/office/save-powerpoint-presentations-as-pdf-files-9b5c786b-9c6e-4fe6-81f6-9372f77c47c8">https://support.microsoft.com/</a>
+            </li>
+            <li>
+                Google Presentation: <a href="https://support.google.com/docs/answer/143346?hl=en&co=GENIE.Platform%3DDesktop&oco=0">https://support.google.com/</a>
+            </li>
+        </ul>
+
+        <input type="file" id="file" ref="file" accept="application/pdf" @change="handleFileUpload()">
+        <button @click="submitFile" :disabled="!file || loading">Last opp</button>
+        <p>{{ message }}</p>
+
+        <h2>Opplastede slides:</h2>
+        <ul>
+            <li v-for="item in items">
+                {{ item.name }}
+            </li>
+        </ul>
+    </div>    
+    <script src="https://cdn.jsdelivr.net/npm/vue"></script>
+    <script>
+        const app = new Vue({ 
+            el: '#app',
+            data(){
+                return {
+                    file: '',
+                    message: '',
+                    loading: false,
+                    items: []
+                }
+            },
+            mounted: function () {
+                fetch('/presentations')
+                .then(res => res.json())
+                .then(res => this.items = res.success ? res.items : [])
+            },
+            methods: {
+                submitFile() {
+                    let formData = new FormData();
+                    formData.append('file', this.file);
+
+                    this.message = 'laster opp PDF ....'
+                    this.loading = true
+
+                    fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(res => res.json())
+                    .then(res => this.message = res.success ? 'PDF lastet opp!' : res.error)
+                    .catch(error => this.message = error.toString())
+                    .finally(() => {
+                        fetch('/presentations')
+                        .then(res => res.json())
+                        .then(res => {
+                            this.loading = false
+                            this.items = res.success ? res.items : []
+                        })
+                    })
+                },
+                handleFileUpload(){
+                    this.file = this.$refs.file.files[0];
+                }
+            },
+
+        })
+    </script>
+</body>
+</html>
