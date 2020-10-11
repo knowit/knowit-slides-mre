@@ -12,6 +12,19 @@ process.on('unhandledRejection', reason => console.log('unhandledRejection', rea
 const baseUrl = process.env['BASE_URL'] || undefined
 const url = process.env['REDIS_URL']
 
+const waitFor = (condition: () => boolean) => {
+	return new Promise((resolve) => {
+		const awaitCondition = () => {
+			if (condition()) {
+				resolve()
+			} else {
+				setTimeout(awaitCondition, 100)
+			}
+		}
+		awaitCondition();
+	})
+}
+
 function runApp() {
 	const database = new Database({ url });
 	const server = new WebHost({
@@ -24,18 +37,9 @@ function runApp() {
 	server.adapter.onConnection(
 		context => new App(context, database, server.baseUrl));
 
-		
 	// Workaround to use same web server context
-	const awaitServerSetup = () => {
-		if(server.adapter.server) {
-			new HttpServer(
-				server.adapter.server, 
-				database)
-		} else {
-			setTimeout(awaitServerSetup, 1000)
-		}
-	}
-	awaitServerSetup();
+	waitFor(() => !!server.adapter.server)
+		.then(() => new HttpServer(server.adapter.server, database))
 }
 
 const delay = 1000;

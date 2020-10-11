@@ -27,11 +27,16 @@
         <ul>
             <li v-for="item in items">
                 {{ item.name }}
+                <a href="#" @click="deletePres(item)"> delete</a>
             </li>
         </ul>
     </div>    
     <script src="https://cdn.jsdelivr.net/npm/vue"></script>
     <script>
+        const listPresentations = () =>
+            fetch('/presentations')
+                .then(res => res.json())
+
         const app = new Vue({ 
             el: '#app',
             data(){
@@ -43,9 +48,8 @@
                 }
             },
             mounted: function () {
-                fetch('/presentations')
-                .then(res => res.json())
-                .then(res => this.items = res.success ? res.items : [])
+                listPresentations()
+                    .then(res => this.items = res.success ? res.items : [])
             },
             methods: {
                 submitFile() {
@@ -63,8 +67,7 @@
                     .then(res => this.message = res.success ? 'PDF lastet opp!' : res.error)
                     .catch(error => this.message = error.toString())
                     .finally(() => {
-                        fetch('/presentations')
-                        .then(res => res.json())
+                        listPresentations()
                         .then(res => {
                             this.loading = false
                             this.items = res.success ? res.items : []
@@ -73,6 +76,20 @@
                 },
                 handleFileUpload(){
                     this.file = this.$refs.file.files[0];
+                },
+                deletePres(pres) {
+                    this.loading = true
+
+                    fetch(`/presentations/${pres.name}`, {
+                        method: 'DELETE',
+                    })
+                    .finally(() => {
+                        listPresentations()
+                        .then(res => {
+                            this.loading = false
+                            this.items = res.success ? res.items : []
+                        })
+                    })
                 }
             },
 

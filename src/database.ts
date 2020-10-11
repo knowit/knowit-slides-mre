@@ -1,59 +1,48 @@
-import redis from 'redis'
-import { print } from 'util';
+import redis, { RedisClient } from 'redis'
+import { promisify } from 'util'
 
 
 export default class RedisDatabase {
-    private client: redis.RedisClient
+	private client: RedisClient;
 
-    constructor({ url } : { url: string }){
-        this.client = redis.createClient({ url });
-        this.client.on("error", function(error) {
-            console.error(error);
-        });
-    }
+	constructor({ url }: { url: string }) {
+		this.client = redis.createClient({ url });
+		this.client.on("error", function (error) {
+			console.error(error);
+		});
+	}
 
-    async hget(hash: string, key: string) : Promise<string> {
-        return new Promise((resolve, reject) => {
-            this.client.hget(hash, key, (error, result) => {
-                if (error) reject(error)
-                else resolve(result)
-            })
-        });
-    }
+	public get (key: string) {
+		return promisify(this.client.get).bind(this.client)(key)
+	}
 
-    async hset(hash:string, key: string, value: string) {
-        return new Promise((resolve, reject) => {
-            this.client.hset(hash, key, value, (error) => {
-                if (error) reject(error)
-                else resolve()
-            })
-        })
-    }
+	public set (key: string, value: string) {
+		return promisify(this.client.set).bind(this.client)(key, value)
+	}
 
-    async set(key: string, value: string) {
-        return new Promise((resolve, reject) => {
-            this.client.set(key, value, (error) => {
-                if (error) reject(error)
-                else resolve()
-            })
-        })
-    }
+	public hget (hash: string, key: string) {
+		return promisify(this.client.hget).bind(this.client)(hash, key)
+	}
 
-    async get(key: string) : Promise<string> {
-        return new Promise((resolve, reject) => {
-            this.client.get(key, (error, result) => {
-                if (error) reject(error)
-                else resolve(result)
-            })
-        })
-    }
+	public hset (hash: string, key: string, value: string) { 
+		return promisify<string, string, string, number>(this.client.hset).bind(this.client)(hash, key, value)
+	}
 
-    async hgetall(hash: string) : Promise<{[key: string]: string}>{
-        return new Promise((resolve, reject) => {
-            this.client.hgetall(hash, (error, result) => {
-                if (error) reject(error)
-                else resolve(result)
-            });
-        });
-    }
+	public hgetall (hash: string) {
+		return promisify(this.client.hgetall).bind(this.client)(hash)
+	}
+
+	public hkeys (hash: string) {
+		return promisify(this.client.hkeys).bind(this.client)(hash)
+	}
+
+	public hdel (hash: string, keys: string[]) {
+		return promisify<string, string[], number>(this.client.hdel).bind(this.client)(hash, keys)
+	}
+
+	async hdelall(hash: string) {
+		const keys = await this.hkeys(hash)
+		if (keys.length === 0) return 0;
+		return this.hdel(hash, keys)
+	}
 }

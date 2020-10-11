@@ -27,7 +27,6 @@ module.exports = {
 	"rules": {
 		"block-spacing": ["warn", "always"],
 		"brace-style": ["warn", "1tbs", {"allowSingleLine": true}],
-		"curly": ["warn", "all"],
 		"default-param-last": "warn",
 		"eol-last": ["warn", "always"],
 		"eqeqeq": ["error", "always"],
@@ -44,8 +43,6 @@ module.exports = {
 			"windows"
 		],
 		"max-classes-per-file": ["warn", 1],
-		"max-len": ["error", 120],
-		"no-console": "error",
 		"no-div-regex": "error",
 		"no-empty": ["error", { "allowEmptyCatch": true }],
 		"no-labels": "error",
@@ -89,6 +86,6 @@ module.exports = {
 			"warn",
 			{ "args": "none" }
 		],
-		"@typescript-eslint/unbound-method": "error"
+		"@typescript-eslint/unbound-method": "off"
 	}
 };
