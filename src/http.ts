@@ -1,7 +1,7 @@
 import multer from 'multer';
 import { Request, Response, Server } from 'restify'
 import { resolve as resolvePath } from 'path';
-import RedisDatabase from './database';
+import SlidesDatabase from './database';
 import * as pdf from 'pdf2pic'
 import { promises as fs } from 'fs'
 
@@ -24,69 +24,81 @@ const upload = multer({
 })
 
 export default class PPTXUploader {
-	constructor(private server: Server, private database: RedisDatabase) {
+	constructor(private server: Server, private database: SlidesDatabase) {
 
 		const multerMiddleware = upload.single('file')
 		this.server.post('/upload',
 			(req, res, next) => multerMiddleware(req as any, res as any, next),
-			(req, res) => this.upload(req as any, res));
-		this.server.get('/presentations', (req, res) => this.presentations(req, res))
-		this.server.del('/presentations/:key', (req, res) => this.deletePresentation(req, res))
-		this.server.get('/presentations/:key/:page', (req, res) => this.page(req, res))
+			async (req, res) => await this.upload(req as any, res));
+		this.server.get('/presentations', async (req, res) => await this.presentations(req, res))
+		this.server.del('/presentations/:key', async (req, res) => await this.deletePresentation(req, res))
+		this.server.get('/presentations/:key/:page', async (req, res) => await this.page(req, res))
 	}
 
-	upload(req: Request & { file: { path: string; filename: string } }, res: Response) {
+	async upload(req: Request & { file: { path: string; filename: string } }, res: Response) {
 		const { path, filename } = req.file
-
-		const registerFile = async () => {
+		try {
 			const file = await fs.readFile(path)
-			await this.database.hdelall(filename)
+			await this.database.query(`
+				INSERT INTO slide_set(name, pdf_base64) VALUES($1::text, $2::text)
+			`, [filename, file.toString('base64')])
 
-			await Promise.all([
-				this.database.hset(filename, 'pdf', file.toString('base64')),
-				this.database.hset(
-					'slide_sets',
-					filename,
-					JSON.stringify({ name: filename }))
-			])
+			res.send({ success: true })
+		} catch (error) {
+			res.send({ success: false, error })
 		}
-
-		registerFile()
-			.then(() => res.send({ success: true }))
-			.catch((error: Error) => res.send({ success: false, error }));
 	}
 
-	presentations(_: Request, res: Response) {
-		this.database.hgetall('slide_sets')
-			.then(slideSets => res.send({
+	async presentations(_: Request, res: Response) {
+		try {
+			const results = await this.database.query(`
+				SELECT name FROM slide_set
+			`)
+
+			res.send({
 				success: true,
-				items: Object.values(slideSets).map(x => JSON.parse(x))
-			}))
-			.catch((error: Error) => res.send({ success: false, error }));
+				items: results.rows
+			})
+
+		} catch (error) {
+			res.send({ success: false, error })
+		}
 	}
 
-	deletePresentation(req: Request, res: Response) {
+	async deletePresentation(req: Request, res: Response) {
 		const { key } = req.params
-		
-		Promise.all([
-			this.database.hdel('slide_sets', [key]),
-			this.database.hdelall(key)
-		])
-		.then(() => res.send({ success: true }))
-		.catch((error: Error) => res.send({ success: false, error }));
+		try {
+			await this.database.query(`
+				DELETE FROM slide_set WHERE name = $1::text
+			`, [key])
+
+			await this.database.query(`
+				DELETE FROM slide_page WHERE slide_name = $1::text
+			`, [key])
+
+			res.send({ success: true })
+		} catch (error) {
+			res.send({ success: false, error })
+		}
 	}
 
-	page(req: Request, res: Response) {
+	async page(req: Request, res: Response) {
 		const { key, page: pageStr } = req.params
 		const page = parseInt(pageStr)
 		const pdfPath = resolvePath(tmpDir, key)
 
-		const loadPage = async () => {
+		try {
 			try {
-				const imageCache = await this.database.hget(key, `page_${page}`)
-				if (imageCache) {
+				const { rows: imageCache } = await this.database.query(`
+					SELECT image_base64 FROM slide_page WHERE slide_name = $1::text AND number = $2
+				`, [key, page])
+
+				if (imageCache.length > 0) {
 					console.log(`Using image from cache: ${key}:${page}`)
-					return Buffer.from(imageCache, 'base64')
+
+					const { image_base64: cacheBase64 } = imageCache[0]
+					res.sendRaw(Buffer.from(cacheBase64, 'base64'))
+					return 
 				}
 			} catch (e) {
 				console.log(`Cache miss: ${key}:${page}`)
@@ -95,23 +107,32 @@ export default class PPTXUploader {
 			const inCache = await fs.stat(pdfPath).then(() => true).catch(() => false);
 			if (!inCache) {
 				console.log(`Download pdf file cache: ${key}`)
-				const pdfEncoded = await this.database.hget(key, 'pdf')
-				if (!pdfEncoded) throw new Error('invalid key')
-				await fs.writeFile(pdfPath, Buffer.from(pdfEncoded, 'base64'))
+
+				const { rows: pdfEncoded } = await this.database.query(`
+					SELECT pdf_base64 FROM slide_set WHERE name = $1::text
+				`, [key])
+
+				if (pdfEncoded.length === 0) throw new Error('invalid key')
+
+				const { pdf_base64: cacheBase64 } = pdfEncoded[0]
+				await fs.writeFile(pdfPath, Buffer.from(cacheBase64, 'base64'))
 			}
 
 			const converter = pdf.fromPath(pdfPath, convertSettings)
 			const { base64: imageEncoded }: { base64?: string } = await converter(page, true);
-
-			await this.database.hset(key, `page_${page}`, imageEncoded)
-			return Buffer.from(imageEncoded, 'base64')
-		}
-
-		loadPage()
-			.then(buffer => res.sendRaw(buffer))
-			.catch(err => {
-				console.error(err)
+			if(!imageEncoded) {
 				res.send(404)
-			})
+				return
+			}
+
+			await this.database.query(`
+				INSERT INTO slide_page(slide_name, number, image_base64) VALUES($1::text, $2, $3::text)
+			`, [key, page, imageEncoded])
+
+			res.sendRaw(Buffer.from(imageEncoded, 'base64'))
+		} catch (error) {
+			console.error(error)
+			res.send(404)
+		}
 	}
 }

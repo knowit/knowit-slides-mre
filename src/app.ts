@@ -1,13 +1,13 @@
 import * as MRE from '@microsoft/mixed-reality-extension-sdk';
 import { ColliderLike } from '@microsoft/mixed-reality-extension-sdk';
-import RedisDatabase from './database';
+import SlidesDatabase from './database';
 
 export default class KnowitSlides {
 	private assets: MRE.AssetContainer
 	private page = 1
 	private slides: string = null
 
-	constructor(private context: MRE.Context, private database: RedisDatabase, private baseUrl: string) {
+	constructor(private context: MRE.Context, private database: SlidesDatabase, private baseUrl: string) {
 		this.context.onStarted(() => this.started());
 	}
 
@@ -187,11 +187,7 @@ export default class KnowitSlides {
 	}
 
 	private async listPresentations(): Promise<Array<{ name?: string }>> {
-		return this.database.hgetall('slide_sets')
-			.then(slideSets => Object.values(slideSets).map(x => JSON.parse(x)))
-			.catch((error: Error) => {
-				console.error(error)
-				return []
-			});
+		const results = await this.database.query(`SELECT name FROM slide_set`)
+		return results.rows
 	}
 }

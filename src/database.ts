@@ -1,48 +1,54 @@
-import redis, { RedisClient } from 'redis'
-import { promisify } from 'util'
+import { Pool, PoolClient } from 'pg'
 
 
-export default class RedisDatabase {
-	private client: RedisClient;
+export default class SlidesDatabase {
+	private pool: Pool;
+	private schemaSetup = false;
 
 	constructor({ url }: { url: string }) {
-		this.client = redis.createClient({ url });
-		this.client.on("error", function (error) {
-			console.error(error);
-		});
+		this.pool = new Pool({
+			connectionString: url,
+			ssl: {
+				rejectUnauthorized: false
+			}
+		})
 	}
 
-	public get (key: string) {
-		return promisify(this.client.get).bind(this.client)(key)
+	async query(queryString: string, values?: any[]) {
+		const client = await this.aquire()
+		const results = await client.query(queryString, values)
+		this.release(client)
+
+		return results
 	}
 
-	public set (key: string, value: string) {
-		return promisify(this.client.set).bind(this.client)(key, value)
+	private async initSchema(client: PoolClient) {
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS slide_set (
+				name varchar(256) NOT NULL,
+				pdf_base64 text NOT NULL,
+				PRIMARY KEY (name)
+			);
+		`)
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS slide_page (
+				slide_name varchar(256) NOT NULL,
+				number integer NOT NULL,
+				image_base64 text NOT NULL
+			);
+		`)
 	}
 
-	public hget (hash: string, key: string) {
-		return promisify(this.client.hget).bind(this.client)(hash, key)
+	private async aquire() {
+		const client = await this.pool.connect()
+		if (!this.schemaSetup) {
+			await this.initSchema(client)
+			this.schemaSetup = true
+		} 
+		return client
 	}
 
-	public hset (hash: string, key: string, value: string) { 
-		return promisify<string, string, string, number>(this.client.hset).bind(this.client)(hash, key, value)
-	}
-
-	public hgetall (hash: string) {
-		return promisify(this.client.hgetall).bind(this.client)(hash)
-	}
-
-	public hkeys (hash: string) {
-		return promisify(this.client.hkeys).bind(this.client)(hash)
-	}
-
-	public hdel (hash: string, keys: string[]) {
-		return promisify<string, string[], number>(this.client.hdel).bind(this.client)(hash, keys)
-	}
-
-	async hdelall(hash: string) {
-		const keys = await this.hkeys(hash)
-		if (keys.length === 0) return 0;
-		return this.hdel(hash, keys)
+	private release(client: PoolClient) {
+		client.release()
 	}
 }
